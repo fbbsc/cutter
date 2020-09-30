@@ -432,6 +432,7 @@ void DisassemblyWidget::highlightCurrentLine()
     }
 
     mDisasTextEdit->setExtraSelections(extraSelections);
+    leftPanel->update();
 }
 
 void DisassemblyWidget::showDisasContextMenu(const QPoint &pt)
@@ -800,6 +801,119 @@ void DisassemblyLeftPanel::wheelEvent(QWheelEvent *event) {
     this->disas->scrollInstructions(count);
 }
 
+
+bool is_jcc_taken(RVA ip)
+{
+    QString currInstr = Core()->disassembleSingleInstruction(ip).toUpper();
+    if(currInstr.isEmpty())
+        return false;
+
+    quint64 flags = 0;
+    for(const auto& reg : Core()->getRegisterRefValues())
+    {
+        if(reg.name == "rflags")
+            flags = reg.value.toULongLong(nullptr, 16);
+        else if(reg.name == "eflags")
+            flags = reg.value.toULongLong(nullptr, 16);
+    }
+
+    enum EFLAG
+    {
+        EFLG_C = 1 << 0,    //0x001,
+        EFLG_P = 1 << 2,    //0x004,
+        EFLG_A = 1 << 4,    //0x010,
+        EFLG_Z = 1 << 6,    //0x040,
+        EFLG_S = 1 << 7,    //0x080,
+        EFLG_T = 1 << 8,    //0x100,
+        EFLG_I = 1 << 9,    //0x200,
+        EFLG_D = 1 << 10,   //0x400,
+        EFLG_O = 1 << 11,   //0x800,
+    };
+
+    const bool CF = flags & EFLG_C;
+    const bool PF = flags & EFLG_P;
+    const bool ZF = flags & EFLG_Z;
+    const bool SF = flags & EFLG_S;
+    const bool OF = flags & EFLG_O;
+
+    enum JCC_TYP
+    {
+        BA,BAE,BB,BBE,BE,BNE,BG,BGE,
+        BL,BLE,BNO,BO,BNP,BNS,BP,BS,
+        JMP,NONE
+    };
+
+    /*
+     * Since no proper instructiond decoding is available right now
+     * we have to do it with string compares...
+     * */
+    JCC_TYP typ = NONE;
+    if(currInstr.startsWith("JMP"))
+        typ = JCC_TYP::JMP;
+    else if(currInstr.startsWith("JA") || currInstr.startsWith("JNBE"))
+        typ = JCC_TYP::BA;
+    else if(currInstr.startsWith("JNB") || currInstr.startsWith("JAE") || currInstr.startsWith("JNC"))
+        typ = JCC_TYP::BAE;
+    else if(currInstr.startsWith("JB") || currInstr.startsWith("JNAE") || currInstr.startsWith("JC"))
+        typ = JCC_TYP::BB;
+    else if(currInstr.startsWith("JBE") || currInstr.startsWith("JNA"))
+        typ = JCC_TYP::BBE;
+    else if(currInstr.startsWith("JZ") || currInstr.startsWith("JE"))
+        typ = JCC_TYP::BE;
+    else if(currInstr.startsWith("JNE") || currInstr.startsWith("JNZ"))
+        typ = JCC_TYP::BNE;
+    else if(currInstr.startsWith("JG") || currInstr.startsWith("JNLE"))
+        typ = JCC_TYP::BG;
+    else if(currInstr.startsWith("JGE") || currInstr.startsWith("JNL"))
+        typ = JCC_TYP::BGE;
+    else if(currInstr.startsWith("JL") || currInstr.startsWith("JNGE"))
+        typ = JCC_TYP::BL;
+    else if(currInstr.startsWith("JLE") || currInstr.startsWith("JNG"))
+        typ = JCC_TYP::BLE;
+    else if(currInstr.startsWith("JNO"))
+        typ = JCC_TYP::BNO;
+    else if(currInstr.startsWith("JO"))
+        typ = JCC_TYP::BO;
+    else if(currInstr.startsWith("JNP") || currInstr.startsWith("JPO"))
+        typ = JCC_TYP::BNP;
+    else if(currInstr.startsWith("JNS"))
+        typ = JCC_TYP::BNS;
+    else if(currInstr.startsWith("JP") || currInstr.startsWith("JPE"))
+        typ = JCC_TYP::BP;
+    else if(currInstr.startsWith("JS"))
+        typ = JCC_TYP::BS;
+
+    bool r;
+    switch(typ)
+    {
+        case JCC_TYP::BA:	r = (!CF && !ZF);		break; //JA, JNBE
+        case JCC_TYP::BAE:	r = (!CF);				break; //JNB, JAE, JNC
+        case JCC_TYP::BB:	r = (CF);				break; //JB, JNAE, JC
+        case JCC_TYP::BBE:	r = (CF || ZF);			break; //JBE, JNA
+        case JCC_TYP::BE:	r = (ZF);				break; //JZ JE
+        case JCC_TYP::BNE:	r = (!ZF);				break; //JNE, JNZ
+        case JCC_TYP::BG:	r = (!ZF && SF == OF);	break; //JG, JNLE
+        case JCC_TYP::BGE:	r = (SF == OF);			break; //JGE, JNL
+        case JCC_TYP::BL:	r = (SF != OF);			break; //JL, JNGE
+        case JCC_TYP::BLE:	r = (ZF || SF != OF);	break; //JLE, JNG
+        case JCC_TYP::BNO:	r = (!OF);				break; //JNO
+        case JCC_TYP::BO:	r = (OF);				break; //JO
+        case JCC_TYP::BNP:	r = (!PF);				break; //JNP, JPO
+        case JCC_TYP::BNS:	r = (!SF);				break; //JNS
+        case JCC_TYP::BP:	r = (PF);				break; //JP, JPE
+        case JCC_TYP::BS:	r = (SF);				break; //JS
+        case JCC_TYP::JMP:  r = true;               break; //JMP
+        default:            r = false;              break;
+    }
+
+    /*
+        todo: CMOV, JECXZ, JRCXZ, JCXZ, REPNE?
+    */
+
+    return r;
+}
+
+
 void DisassemblyLeftPanel::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event)
@@ -881,6 +995,9 @@ void DisassemblyLeftPanel::paintEvent(QPaintEvent *event)
         }
     }
 
+
+    const RVA currIp = Core()->getProgramCounterValue();
+    const bool jcctaken = is_jcc_taken(currIp);
     const RVA currOffset = disas->getSeekable()->getOffset();
     qreal pixelRatio = qhelpers::devicePixelRatio(p.device());
     // Draw the lines
@@ -894,11 +1011,19 @@ void DisassemblyLeftPanel::paintEvent(QPaintEvent *event)
 
         bool jumpDown = l.arrow > l.offset;
         p.setPen(jumpDown ? penDown : penUp);
-        if (l.offset == currOffset || l.arrow == currOffset) {
+        if (l.offset == currIp) {
+            QPen pen = p.pen();
+            if(jcctaken)
+                pen.setColor(Qt::red);
+            p.setPen(pen);
+        }
+        if (l.offset == currOffset || l.arrow == currOffset || l.offset == currIp || l.arrow == currIp) {
             QPen pen = p.pen();
             pen.setWidthF((penSizePix * 3) / 2.0);
             p.setPen(pen);
         }
+
+
         bool endVisible = true;
 
         int currentLineYPos = linesPixPosition[l.offset];
