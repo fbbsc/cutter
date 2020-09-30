@@ -21,17 +21,15 @@ ThreadsWidget::ThreadsWidget(MainWindow *main) :
 {
     ui->setupUi(this);
 
-    // Setup threads model
-    modelThreads = new QStandardItemModel(1, 3, this);
-    modelThreads->setHorizontalHeaderItem(COLUMN_PID, new QStandardItem(tr("PID")));
-    modelThreads->setHorizontalHeaderItem(COLUMN_STATUS, new QStandardItem(tr("Status")));
-    modelThreads->setHorizontalHeaderItem(COLUMN_PATH, new QStandardItem(tr("Path")));
+    m2 = new ThreadModel2(this);
+
+
     ui->viewThreads->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     ui->viewThreads->verticalHeader()->setVisible(false);
     ui->viewThreads->setFont(Config()->getFont());
 
     modelFilter = new ThreadsFilterModel(this);
-    modelFilter->setSourceModel(modelThreads);
+    modelFilter->setSourceModel(m2);
     ui->viewThreads->setModel(modelFilter);
 
     // CTRL+F switches to the filter view and opens it in case it's hidden
@@ -107,37 +105,27 @@ QString ThreadsWidget::translateStatus(QString status)
 
 void ThreadsWidget::setThreadsGrid()
 {
-    QJsonArray threadsValues = Core()->getProcessThreads(DEBUGGED_PID).array();
-    int i = 0;
-    QFont font;
-                
+    const QJsonArray threadsValues = Core()->getProcessThreads(DEBUGGED_PID).array();
+    QVector<thread_info> tinfo;
+
     for (const QJsonValue &value : threadsValues) {
         QJsonObject threadsItem = value.toObject();
         int pid = threadsItem["pid"].toVariant().toInt();
         QString status = translateStatus(threadsItem["status"].toString());
         QString path = threadsItem["path"].toString();
         bool current = threadsItem["current"].toBool();
-        // Use bold font to highlight active thread
-        font.setBold(current);
-        QStandardItem *rowPid = new QStandardItem(QString::number(pid));
-        rowPid->setFont(font);
-        QStandardItem *rowStatus = new QStandardItem(status);
-        rowStatus->setFont(font);
-        QStandardItem *rowPath = new QStandardItem(path);
-        rowPath->setFont(font);
-        modelThreads->setItem(i, COLUMN_PID, rowPid);
-        modelThreads->setItem(i, COLUMN_STATUS, rowStatus);
-        modelThreads->setItem(i, COLUMN_PATH, rowPath);
-        i++;
+
+        thread_info inf;
+        inf.pid = QString::number(pid);
+        inf.path = path;
+        inf.status = status;
+        inf.current = current;
+        tinfo.push_back(inf);
     }
 
-    // Remove irrelevant old rows
-    if (modelThreads->rowCount() > i) {
-        modelThreads->removeRows(i, modelThreads->rowCount() - i);
-    }
-
-    modelFilter->setSourceModel(modelThreads);
-    ui->viewThreads->resizeColumnsToContents();;
+    modelFilter->setSourceModel(m2);
+    //m2->set_data(tinfo);
+    ui->viewThreads->resizeColumnsToContents();
 }
 
 void ThreadsWidget::fontsUpdatedSlot()
