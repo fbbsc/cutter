@@ -3,6 +3,7 @@
 #include "core/MainWindow.h"
 #include "common/Helpers.h"
 #include <QShortcut>
+#include <QFileDialog>
 
 MemoryMapModel::MemoryMapModel(QList<MemoryMapDescription> *memoryMaps, QObject *parent)
     : AddressableItemModel<QAbstractListModel>(parent),
@@ -129,6 +130,14 @@ MemoryMapWidget::MemoryMapWidget(MainWindow *main) :
     connect(Core(), &CutterCore::refreshAll, this, &MemoryMapWidget::refreshMemoryMap);
     connect(Core(), &CutterCore::registersChanged, this, &MemoryMapWidget::refreshMemoryMap);
 
+    dumptodisk.setParent(this);
+    dumptodisk.setText(tr("Dump to disk"));
+    dumptodisk.setShortcutContext(Qt::WidgetShortcut);
+    ui->treeView->addAction(&dumptodisk);
+    connect(&dumptodisk, &QAction::triggered, this, &MemoryMapWidget::dumpToDisk);
+    auto menu = ui->treeView->getItemContextMenu();
+    menu->addAction(&dumptodisk);
+
     showCount(false);
 }
 
@@ -150,4 +159,56 @@ void MemoryMapWidget::refreshMemoryMap()
     ui->treeView->resizeColumnToContents(0);
     ui->treeView->resizeColumnToContents(1);
     ui->treeView->resizeColumnToContents(2);
+}
+
+void msgb(QString s) {
+    QMessageBox::warning(nullptr,"",s);
+}
+
+
+
+void MemoryMapWidget::dumpToDisk()
+{
+    QModelIndex current_item = ui->treeView->currentIndex();
+    if(!current_item.isValid())
+        return;
+    int row = current_item.row();
+    QModelIndex index_start = ui->treeView->model()->index(row, MemoryMapModel::AddrStartColumn);
+    QModelIndex index_end = ui->treeView->model()->index(row, MemoryMapModel::AddrEndColumn);
+
+    bool ok1,ok2;
+    //toString required due to encoding in memorymap model...
+    quint64 start = index_start.data().toString().toULongLong(&ok1, 16);
+    quint64 end = index_end.data().toString().toULongLong(&ok2, 16);
+    if(!ok1 || !ok2 || start >= end)
+    {
+        QMessageBox::warning(this, tr("Error"), tr("Could not dump to disk.s"));
+        return;
+    }
+
+    int size = end - start;
+    QByteArray data = Core()->ioRead(start, size);
+    QString defaultname = QString("%1-%2.dump")
+                            .arg(index_start.data().toString())
+                            .arg(index_end.data().toString());
+    static QDir path;
+    QString fileName = QFileDialog::getSaveFileName(this,
+                                    tr("Dump to disk..."),
+                                    path.absoluteFilePath(defaultname));
+    if(fileName.isEmpty())
+        return; //Cancel
+    path = QDir(fileName);
+
+    QFile file(fileName);
+    if(file.open(QIODevice::ReadWrite))
+    {
+        if(file.write(data))
+        {
+            file.close();
+            QMessageBox::information(this, tr("Success"), tr("Successfully dumped to file."));
+            return;
+        }
+    }
+
+    QMessageBox::warning(this, tr("Error"), tr("Could not write to file."));
 }

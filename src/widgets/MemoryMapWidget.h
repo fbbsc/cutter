@@ -73,11 +73,13 @@ public:
 private slots:
 
     void refreshMemoryMap();
+    void dumpToDisk();
 
 private:
     MemoryMapModel *memoryModel;
     MemoryProxyModel *memoryProxyModel;
     QList<MemoryMapDescription> memoryMaps;
+    QAction dumptodisk;
 
     RefreshDeferrer *refreshDeferrer;
 };
