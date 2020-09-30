@@ -25,6 +25,7 @@ class QTreeWidgetItem;
 struct RegisterRefDescription {
     QString reg;
     QString value;
+    QColor color;
     RefDescription refDesc;
 };
 Q_DECLARE_METATYPE(RegisterRefDescription)

@@ -45,6 +45,8 @@ QVariant RegisterRefModel::data(const QModelIndex &index, int role) const
         }
     case Qt::ForegroundRole:
         switch (index.column()) {
+        case ValueColumn:
+            return registerRef.color;
         case RefColumn:
             return registerRef.refDesc.refColor;
         default:
@@ -181,15 +183,27 @@ void RegisterRefsWidget::refreshRegisterRef()
     registerRefModel->beginResetModel();
 
     QList<QJsonObject> regRefs = Core()->getRegisterRefs();
+    const auto oldrefs = registerRefs;
     registerRefs.clear();
+    int index = 0;
     for (const QJsonObject &reg : regRefs) {
         RegisterRefDescription desc;
 
         desc.value = RAddressString(reg["value"].toVariant().toULongLong());
         desc.reg = reg["name"].toVariant().toString();
         desc.refDesc = Core()->formatRefDesc(reg["ref"].toObject());
+        if(index < oldrefs.size())
+        {
+            /*
+             * if the ref is not used...
+             */
+            const auto& prev = oldrefs[index];
+            if(prev.reg == desc.reg && prev.value != desc.value)
+                desc.color = Qt::red;
+        }
 
         registerRefs.push_back(desc);
+        index++;
     }
 
     registerRefModel->endResetModel();
